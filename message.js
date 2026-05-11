@@ -203,6 +203,7 @@ command:
  ▢ ${prefix}addowner
  ▢ ${prefix}delcase
  ▢ ${prefix}listcase
+ ▢ ${prefix}getcase
  ▢ ${prefix}listowner
  ▢ ${prefix}csesi
  ▢ ${prefix}exec
@@ -386,7 +387,41 @@ command:
                 if (!cases.length) return reply('Tidak ada case yang ditemukan di message.js.');
                 reply(`Daftar case di message.js:\n${cases.map((c, i) => `${i + 1}. ${c}`).join('\n')}`);
             }
-            break;            case "get":{
+            break;
+            
+            case "getcase": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const caseId = text || m.quoted?.text?.trim();
+                if (!caseId) return reply(`*usage:* ${prefix}getcase <caseId>`);
+
+                const sourceFile = fs.readFileSync(__filename, 'utf-8');
+                const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '$&');
+                const regex = new RegExp(`case\\s+["']${escapeRegex(caseId)}["']\\s*:\\s*\\{`, 'g');
+                const match = regex.exec(sourceFile);
+                if (!match) return reply(`Case dengan id *${caseId}* tidak ditemukan di message.js.`);
+
+                let start = match.index;
+                let braceIndex = sourceFile.indexOf('{', match.index);
+                let depth = 1;
+                let end = braceIndex + 1;
+                while (end < sourceFile.length && depth > 0) {
+                    if (sourceFile[end] === '{') depth++;
+                    else if (sourceFile[end] === '}') depth--;
+                    end++;
+                }
+                if (depth !== 0) return reply(`Gagal mengambil case *${caseId}*. Struktur kode tidak valid.`);
+
+                const remaining = sourceFile.slice(end);
+                const breakMatch = remaining.match(/^\s*break\s*;\s*/);
+                if (breakMatch) {
+                    end += breakMatch[0].length;
+                }
+
+                const code = sourceFile.slice(start, end).trim();
+                reply(`Kode case *${caseId}:*\n\n\`\`\`js\n${code}\n\n\`\`\``);
+            }
+            break;
+            case "get":{
                 if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
                 if (!/^https?:\/\//.test(text)) return reply(`*ex:* ${prefix + command} https://kyuurzy.site`);
                 const ajg = await fetch(text);
@@ -477,8 +512,13 @@ command:
             
             ///////////////////////////////////////////CASE YANG DI TAMBAHKAN AKAN DITEMPATKAN DI BAWAH INI, JANGAN LETAKKAN CASE DI LUAR SWITCH INI///////////////////////////////////////////
 
-            
+             
              break
+            
+            
+
+
+            
 
 case 'tagall':{
              const textMessage = args.join(" ") || "nothing";
@@ -488,83 +528,15 @@ case 'tagall':{
              for (let mem of participants) {
              teks += `@${mem.id.split("@")[0]}\n`;
              }
-            
+             
              client.sendMessage(m.chat, {
              text: teks,
              mentions: participants.map((a) => a.id)
              }, { quoted: fquoted.packSticker });
              }
-             break
-
-case 'alertabsen': {
-             // 1. Ambil Waktu Live Jakarta
-             const waktuJKT = new Date().toLocaleString("en-US", {timeZone: "Asia/Jakarta"});
-             const jamSekarang = new Date(waktuJKT).getHours();
-             const menitSekarang = new Date(waktuJKT).getMinutes();
-             const waktuFull = `${jamSekarang.toString().padStart(2, '0')}:${menitSekarang.toString().padStart(2, '0')}`;
             
-             // 2. Data Peserta PKL (Setting untuk Tes Sekarang)
-             const dataPKL = [
-             { 
-             nama: "Alfianno JP1 PKL", 
-             shift: "M2 (Malam)", 
-             masuk: "21:56", // Kita set jam 10 malam untuk tes
-             nomer: "6282298624694",
-             info: "Pusat Cideng (Lt.4)"
-             },
-             { 
-             nama: "Darren SMKN 2 PKL", 
-             shift: "A2B (Normal)", 
-             masuk: "09:00", 
-             nomer: "6289523654279",
-             info: "Ampasit (Lt.2)"
-             }
-             ];
-            
-             // 3. Logika Otomatis: Filter siapa yang masuk di jam sekarang atau jam berikutnya
-             let yangHarusAbsen = dataPKL.filter(user => {
-             let jamMasuk = parseInt(user.masuk.split(':')[0]);
-             // Akan muncul jika jam sekarang sama dengan jam masuk 
-             // ATAU jam sekarang adalah 1 jam sebelum jam masuk (Peringatan)
-             return jamSekarang === jamMasuk || jamSekarang === (jamMasuk - 1);
-             });
-            
-             // 4. Susun Teks Output
-             let teks = `✨━━━〔 🔔 *𝐀𝐋𝐄𝐑𝐓 𝐀𝐁𝐒𝐄𝐍* 〕━━━✨\n\n`;
-             teks += `⌚ Waktu Live: *${waktuFull} WIB*\n`;
-             teks += `📅 Tanggal: *Minggu, 10 Mei 2026*\n`;
-             teks += `───\n\n`;
-            
-             if (yangHarusAbsen.length > 0) {
-             teks += `⚠️ *TARGET ABSEN JAM INI:* \n\n`;
-             yangHarusAbsen.forEach((user, i) => {
-             teks += `*${i + 1}. ${user.nama}*\n`;
-             teks += `➤ Shift: ${user.shift}\n`;
-             teks += `➤ Lokasi: ${user.info}\n`;
-             teks += `➤ Wajib Absen: *${user.masuk} WIB*\n`;
-             teks += `➤ Chat: wa.me/${user.nomer}\n\n`;
-             });
-             teks += `📢 *Peringatan:* Waktu kamu kurang dari 60 menit. Segera absen dan kirim bukti foto ke grup!`;
-             } else {
-             teks += `✅ *STATUS:* Tidak ada jadwal absen masuk untuk jam *${jamSekarang}:00*. Semua aman!`;
-             }
-            
-             // 5. Kirim Pesan
-             await ptz.sendMessage(m.chat, { 
-             text: teks,
-             contextInfo: {
-             externalAdReply: {
-             title: "AUTOMATED PKL SYSTEM",
-             body: `Monitoring jam: ${waktuFull} WIB`,
-             thumbnailUrl: "https://telegra.ph/file/095034c568853b01a1820.jpg", 
-             sourceUrl: "",
-             mediaType: 1,
-             renderLargerThumbnail: true
-             }
-             }
-             }, { quoted: m });
-            }
-            break;
+            ```
+            break
 
 default:
         }
