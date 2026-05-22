@@ -3,6 +3,9 @@ console.log('starting...');
 const config = () => require('./settings/config');
 process.on("uncaughtException", console.error);
 
+const { checkAndSendAlerts, resetAlertState } = require('./lib/absenceAlert');
+
+
 const { 
     default: makeWASocket, 
     prepareWAMessageMedia, 
@@ -132,6 +135,31 @@ const clientstart = async() => {
         const { konek } = require('./w-shennmine/lib/connection/connect')
         konek({ client, update, clientstart, DisconnectReason, Boom })
     })
+    
+    // Setup Absence Alert System
+    let alertInterval = null;
+    client.startAbsenceAlerts = () => {
+        if (alertInterval) return; // Already running
+        console.log('✓ Absence Alert System STARTED');
+        resetAlertState();
+        
+        // Check alerts every minute
+        alertInterval = setInterval(() => {
+            if (fs.existsSync(path.join(__dirname, '.alert.active'))) {
+                checkAndSendAlerts(client, config(), { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker });
+            }
+        }, 60000); // 60 seconds = 1 minute
+    };
+    
+    client.stopAbsenceAlerts = () => {
+        if (alertInterval) {
+            clearInterval(alertInterval);
+            alertInterval = null;
+            console.log('✓ Absence Alert System STOPPED');
+        }
+    };
+
+    client.startAbsenceAlerts();
     
     client.deleteMessage = async (chatId, key) => {
         try {

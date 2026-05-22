@@ -2,6 +2,9 @@ const config = require('./settings/config');
 require('./setting.js');
 const fs = require('fs');
 const listowner = require('./database/listowner');
+const listjadwal = require('./database/listjadwal');
+const listorangpkl = require('./database/listorangpkl');
+const { checkAndSendAlerts } = require('./lib/absenceAlert');
 const axios = require('axios');
 const chalk = require("chalk");
 const jimp = require("jimp")
@@ -17,17 +20,19 @@ const { default: baileys, getContentType } = require("@shennmine/baileys");
 module.exports = client = async (client, m, chatUpdate, store) => {
     try {
         const body = (
-            m.mtype === "conversation" ? m.message.conversation :
-            m.mtype === "imageMessage" ? m.message.imageMessage.caption :
-            m.mtype === "videoMessage" ? m.message.videoMessage.caption :
-            m.mtype === "extendedTextMessage" ? m.message.extendedTextMessage.text :
-            m.mtype === "buttonsResponseMessage" ? m.message.buttonsResponseMessage.selectedButtonId :
-            m.mtype === "listResponseMessage" ? m.message.listResponseMessage.singleSelectReply.selectedRowId :
-            m.mtype === "templateButtonReplyMessage" ? m.message.templateButtonReplyMessage.selectedId :
-            m.mtype === "interactiveResponseMessage" ? JSON.parse(m.msg.nativeFlowResponseMessage.paramsJson).id :
-            m.mtype === "templateButtonReplyMessage" ? m.msg.selectedId :
-            m.mtype === "messageContextInfo" ? m.message.buttonsResponseMessage?.selectedButtonId ||
-            m.message.listResponseMessage?.singleSelectReply.selectedRowId || m.text : ""
+            m.message?.conversation ||
+            m.message?.imageMessage?.caption ||
+            m.message?.videoMessage?.caption ||
+            m.message?.extendedTextMessage?.text ||
+            m.message?.buttonsResponseMessage?.selectedButtonId ||
+            m.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+            m.message?.templateButtonReplyMessage?.selectedId ||
+            (m.mtype === "interactiveResponseMessage" ? JSON.parse(m.msg?.nativeFlowResponseMessage?.paramsJson || '{}').id : null) ||
+            m.msg?.selectedId ||
+            m.message?.buttonsResponseMessage?.selectedButtonId ||
+            m.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+            m.text ||
+            ""
         );
         
         const sender = m.key.fromMe ? client.user.id.split(":")[0] + "@s.whatsapp.net" ||
@@ -115,7 +120,7 @@ module.exports = client = async (client, m, chatUpdate, store) => {
                         renderLargerThumbnail: false,
                     }
                 }
-            }, { quoted: fquoted.packSticker })
+            }, { quoted: m })
         }
         
         const pluginsLoader = async (directory) => {
@@ -203,8 +208,19 @@ command:
  ▢ ${prefix}addowner
  ▢ ${prefix}delcase
  ▢ ${prefix}listcase
+ ▢ ${prefix}listjadwal
  ▢ ${prefix}getcase
  ▢ ${prefix}listowner
+ ▢ ${prefix}setupalertgroup
+ ▢ ${prefix}startalert
+ ▢ ${prefix}alertsim
+ ▢ ${prefix}tessim
+ ▢ ${prefix}setalert
+ ▢ ${prefix}listalert
+ ▢ ${prefix}clearalert
+ ▢ ${prefix}testgroup
+ ▢ ${prefix}setjadwal
+ ▢ ${prefix}clearjadwal
  ▢ ${prefix}csesi
  ▢ ${prefix}exec
  ▢ ${prefix}eval
@@ -248,7 +264,7 @@ command:
                                     {
                                         name: "single_select",
                                         buttonParamsJson: JSON.stringify({
-                                            title: "shennminè",
+                                            title: "Menu nya bang 😎",
                                             sections: [
                                                 {
                                                     title: "# X - the best",
@@ -278,9 +294,9 @@ command:
                                     {
                                         name: "cta_copy",
                                         buttonParamsJson: JSON.stringify({
-                                            display_text: "shennminè",
+                                            display_text: "Credit",
                                             id: "123456789",
-                                            copy_code: "https://t.me/sh3nnmine"
+                                            copy_code: "Thanks to CC : alfiano, reynard, darren, ritzwan, andika, fabian, raditya and senior zidan and ronald thanks  by: alfino - 082298624694, 085787443516"
                                         })
                                     }
                                 ]
@@ -388,6 +404,151 @@ command:
                 reply(`Daftar case di message.js:\n${cases.map((c, i) => `${i + 1}. ${c}`).join('\n')}`);
             }
             break;
+            case "listjadwal": {
+                const jadwals = listjadwal.jadwal || [];
+                const shifts = listjadwal.shifts || {};
+                const peserta = listorangpkl.orang || [];
+                
+                if (!peserta.length) return reply('Belum ada data orang PKL. Silakan tambahkan dulu.');
+
+                // Get today's date
+                const today = new Date();
+                const todayStr = today.toISOString().split('T')[0];
+                const hari = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'][today.getDay()];
+                
+                // Get current time
+                const jam = String(today.getHours()).padStart(2, '0') + ':' + String(today.getMinutes()).padStart(2, '0');
+
+                if (!text) {
+                    // Build rows with today's shift info
+                    const rows = peserta.map((item, index) => {
+                        const label = item.split(' - ')[0].trim() || item;
+                        
+                        // Find today's schedule for this person
+                        const personData = jadwals.find(p => p.nama?.toLowerCase() === label.toLowerCase());
+                        let todayShift = '-';
+                        let shiftInfo = null;
+                        
+                        if (personData && personData.schedule) {
+                            const todaySchedule = personData.schedule.find(s => s.tanggal === todayStr);
+                            if (todaySchedule) {
+                                todayShift = todaySchedule.shift;
+                                shiftInfo = shifts[todayShift];
+                            }
+                        }
+                        
+                        const description = shiftInfo 
+                            ? `${shiftInfo.nama} | ${shiftInfo.waktu} | ${shiftInfo.lokasi}`
+                            : `Tidak ada jadwal hari ini`;
+                        
+                        return {
+                            title: `${index + 1}. ${label}`,
+                            description: description,
+                            id: `${prefix}listjadwal ${item}`
+                        };
+                    });
+
+                    // Get all people working today
+                    let workingToday = [];
+                    jadwals.forEach(person => {
+                        const todaySchedule = person.schedule?.find(s => s.tanggal === todayStr);
+                        if (todaySchedule && todaySchedule.shift !== 'L' && todaySchedule.shift !== 'S') {
+                            const shiftInfo = shifts[todaySchedule.shift];
+                            const isNightShift = todaySchedule.shift === 'M1' || todaySchedule.shift === 'M2' ? '🌙' : '✓';
+                            workingToday.push({
+                                nama: person.nama,
+                                shift: todaySchedule.shift,
+                                shiftNama: shiftInfo?.nama || todaySchedule.shift,
+                                waktu: shiftInfo?.waktu || '-',
+                                lokasi: shiftInfo?.lokasi || '-',
+                                isNight: isNightShift
+                            });
+                        }
+                    });
+
+                    let headerText = `📅 *JADWAL HARI INI* (${todayStr} - ${hari})\n⏰ Jam: ${jam}\n\n`;
+                    
+                    if (workingToday.length > 0) {
+                        headerText += `👷 *Yang Sedang PKL Hari Ini:*\n`;
+                        workingToday.forEach(w => {
+                            headerText += `• ${w.nama} - ${w.shiftNama} ${w.isNight} (${w.waktu})\n`;
+                        });
+                        headerText += `📍 Lokasi: ${workingToday[0].lokasi}\n\n`;
+                    } else {
+                        headerText += `Tidak ada yang PKL hari ini\n\n`;
+                    }
+                    
+                    headerText += `Pilih nama untuk detail jadwal mingguan:`;
+
+                    return client.sendMessage(m.chat, {
+                        interactiveMessage: {
+                            title: headerText,
+                            footer: config.settings.footer,
+                            nativeFlowMessage: {
+                                messageParamsJson: JSON.stringify({
+                                    limited_time_offer: {
+                                        text: 'Pilih nama untuk melihat jadwal PKL',
+                                        url: 'https://t.me/sh3nnmine',
+                                        copy_code: 'Pilih nama',
+                                        expiration_time: Date.now() + 1000 * 60 * 5
+                                    },
+                                    bottom_sheet: {
+                                        in_thread_buttons_limit: 2,
+                                        divider_indices: [1, 2, 3, 4, 999],
+                                        list_title: 'Nama PKL',
+                                        button_title: 'Pilih Nama'
+                                    },
+                                    tap_target_configuration: {
+                                        title: 'Pilih Anak PKL',
+                                        description: 'Lihat jadwal PKL berdasarkan nama anak',
+                                        canonical_url: 'https://t.me/sh3nnmine',
+                                        domain: 't.me',
+                                        button_index: 0
+                                    }
+                                }),
+                                buttons: [
+                                    {
+                                        name: 'single_select',
+                                        buttonParamsJson: JSON.stringify({
+                                            title: 'Pilih Nama',
+                                            sections: [
+                                                {
+                                                    title: 'Nama PKL',
+                                                    rows,
+                                                    highlight_label: 'pilih'
+                                                }
+                                            ],
+                                            has_multiple_buttons: true
+                                        })
+                                    }
+                                ]
+                            }
+                        }
+                    }, { quoted: m });
+                }
+
+                const requestedName = text.split(' - ')[0].trim().toLowerCase();
+                const pesertaData = jadwals.find(p => p.nama?.toLowerCase().includes(requestedName));
+                
+                if (!pesertaData || !pesertaData.schedule) return reply(`Jadwal untuk *${text.split(' - ')[0].trim()}* tidak ditemukan.`);
+
+                let msg = `📅 *JADWAL PKL* - ${pesertaData.nama} (${pesertaData.sekolah})\n`;
+                msg += `${'='.repeat(50)}\n\n`;
+                
+                pesertaData.schedule.forEach((item, index) => {
+                    const shiftInfo = shifts[item.shift] || { nama: item.shift, waktu: '-', lokasi: '-' };
+                    const isNightShift = item.shift === 'M1' || item.shift === 'M2' ? ' 🌙' : '';
+                    const isToday = item.tanggal === todayStr ? ' ⭐ (HARI INI)' : '';
+                    
+                    msg += `${index + 1}. ${item.tanggal} (${item.hari})${isToday}\n`;
+                    msg += `   Shift: ${shiftInfo.nama}${isNightShift}\n`;
+                    msg += `   Waktu: ${shiftInfo.waktu}\n`;
+                    msg += `   Lokasi: ${shiftInfo.lokasi}\n\n`;
+                });
+                
+                reply(msg);
+            }
+            break;
             
             case "getcase": {
                 if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
@@ -461,7 +622,7 @@ command:
                     return reply(alak.slice(0, 65536));
                 }
             }
-            break
+            break;
             case "insp": {
                 if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
                 if (!text && !m.quoted) return reply(`*reply:* ${prefix + command}`);
@@ -509,36 +670,301 @@ command:
             }
             break;
             
+            case "setupalertgroup": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const groupId = text.trim();
+                if (!groupId) return reply(`*usage:* ${prefix}setupalertgroup <GROUP_ID>\n\nContoh:\n${prefix}setupalertgroup 120363H7mKPII7BjyIeMK5ao3XYv@g.us`);
+                
+                // Save to config file
+                const configPath = path.join(__dirname, '.env.alert');
+                fs.writeFileSync(configPath, `ALERT_GROUP_ID=${groupId}`);
+                reply(`✓ Alert group ID berhasil disimpan!\n\nGroup ID: *${groupId}*\n\nSekarang gunakan *${prefix}startalert* untuk mulai sistem alert.`);
+            }
+            break;
+
+            case "startalert": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const action = text.toLowerCase().trim();
+                
+                if (!action || (action !== 'on' && action !== 'off')) {
+                    return reply(`*usage:* ${prefix}startalert <on|off>\n\nContoh:\n${prefix}startalert on\n${prefix}startalert off`);
+                }
+                
+                const configPath = path.join(__dirname, '.env.alert');
+                
+                if (action === 'on') {
+                    // Check if group ID is set
+                    if (!fs.existsSync(configPath)) {
+                        return reply(`⚠️ Alert group ID belum di-setup!\n\nGunakan terlebih dahulu:\n${prefix}setupalertgroup <GROUP_ID>`);
+                    }
+                    
+                    // Start alert system by creating marker file
+                    fs.writeFileSync(path.join(__dirname, '.alert.active'), 'true');
+                    if (typeof client.startAbsenceAlerts === 'function') client.startAbsenceAlerts();
+                    reply(`✓ Sistem alert *AKTIF*\n\n📢 Alert akan dikirim:\n• 50 menit sebelum jam kerja\n• 10 menit sebelum jam kerja`);
+                } else {
+                    // Stop alert system
+                    if (fs.existsSync(path.join(__dirname, '.alert.active'))) {
+                        fs.unlinkSync(path.join(__dirname, '.alert.active'));
+                    }
+                    reply(`✓ Sistem alert *NONAKTIF*`);
+                }
+            }
+            break;
+            case "alertsim": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const inputTime = text.trim();
+                if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(inputTime)) {
+                    return reply(`*usage:* ${prefix}alertsim <HH:MM>\n\nContoh:\n${prefix}alertsim 09:15`);
+                }
+                
+                const alertModule = require('./lib/absenceAlert');
+                const result = await alertModule.checkAndSendAlerts(client, config, { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker }, inputTime);
+                const manualResult = await alertModule.sendManualScheduleAlert(client, config, { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker }, inputTime);
+                
+                if (result.error) {
+                    return reply(`⚠️ Gagal menjalankan simulasi: ${result.error}`);
+                }
+                if (manualResult.error) {
+                    console.warn('Manual schedule alert error:', manualResult.error);
+                }
+                
+                const totalSent = (result.sent || 0) + (manualResult.sent || 0);
+                if (totalSent > 0) {
+                    reply(`✅ Simulasi alert pada jam *${inputTime}* berhasil. Total pesan terkirim: *${totalSent}*`);
+                } else {
+                    let details = `⚠️ Simulasi alert pada jam *${inputTime}* selesai, tetapi tidak ada alert yang cocok pada waktu itu.`;
+                    if (result.summary && result.summary.length) {
+                        details += `\n\n*Jadwal alert hari ini:*
+`;
+                        result.summary.forEach(item => {
+                            details += `• *${item.nama}* (${item.shiftName}) - ${item.shiftTime}\n`;
+                            details += `  • 50 menit sebelum: ${item.alert50}\n`;
+                            details += `  • 10 menit sebelum: ${item.alert10}\n`;
+                        });
+                    }
+                    reply(details);
+                }
+            }
+            break;
+
+            case "setalert": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const inputTime = text.trim();
+                if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(inputTime)) {
+                    return reply(`*usage:* ${prefix}setalert <HH:MM>\n\nContoh:\n${prefix}setalert 12:40`);
+                }
+
+                const alertPath = path.join(__dirname, '.alert.direct.json');
+                const today = new Date();
+                const todayStr = today.toISOString().split('T')[0];
+                let directAlerts = [];
+                if (fs.existsSync(alertPath)) {
+                    try {
+                        directAlerts = JSON.parse(fs.readFileSync(alertPath, 'utf-8')) || [];
+                    } catch (e) {
+                        directAlerts = [];
+                    }
+                }
+
+                const existingIndex = directAlerts.findIndex(a => a.date === todayStr && a.time === inputTime);
+                if (existingIndex === -1) {
+                    directAlerts.push({ date: todayStr, time: inputTime });
+                }
+                fs.writeFileSync(alertPath, JSON.stringify(directAlerts, null, 2), 'utf-8');
+                reply(`✅ Alert jam *${inputTime}* sudah disimpan untuk hari ini (${todayStr}).\nKetik *${prefix}tessim* atau tunggu jam tersebut agar notifikasi dikirim.`);
+            }
+            break;
+
+            case "listalert": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const alertPath = path.join(__dirname, '.alert.direct.json');
+                if (!fs.existsSync(alertPath)) return reply(`⚠️ Belum ada alert direct yang disimpan.`);
+                const directAlerts = JSON.parse(fs.readFileSync(alertPath, 'utf-8')) || [];
+                if (!directAlerts.length) return reply(`⚠️ Belum ada alert direct yang disimpan.`);
+                let textList = `📌 Alert direct yang disimpan:\n`;
+                directAlerts.forEach(a => {
+                    textList += `• ${a.date} ${a.time}\n`;
+                });
+                reply(textList);
+            }
+            break;
+
+            case "clearalert": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const alertPath = path.join(__dirname, '.alert.direct.json');
+                if (fs.existsSync(alertPath)) {
+                    fs.unlinkSync(alertPath);
+                    reply(`✅ Semua alert direct telah dihapus.`);
+                } else {
+                    reply(`⚠️ Tidak ada alert direct untuk dihapus.`);
+                }
+            }
+            break;
+
+            case "tessim": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const savedTimePath = path.join(__dirname, '.alert.time');
+                let inputTime = text.trim();
+                let loadedFromFile = false;
+
+                if (!inputTime) {
+                    if (!fs.existsSync(savedTimePath)) {
+                        return reply(`*usage:* ${prefix}tessim <HH:MM>\n\nContoh:\n${prefix}tessim 09:10\n\nKetik tanpa argumen setelah waktu disimpan.`);
+                    }
+                    inputTime = fs.readFileSync(savedTimePath, 'utf-8').trim();
+                    loadedFromFile = true;
+                } else {
+                    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(inputTime)) {
+                        return reply(`*usage:* ${prefix}tessim <HH:MM>\n\nContoh:\n${prefix}tessim 09:10`);
+                    }
+                    fs.writeFileSync(savedTimePath, inputTime, 'utf-8');
+                }
+
+                const alertModule = require('./lib/absenceAlert');
+                const result = await alertModule.checkAndSendAlerts(client, config, { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker }, inputTime);
+                const manualResult = await alertModule.sendManualScheduleAlert(client, config, { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker }, inputTime);
+
+                if (result.error) {
+                    return reply(`⚠️ Gagal menjalankan simulasi: ${result.error}`);
+                }
+                if (manualResult.error) {
+                    console.warn('Manual schedule alert error:', manualResult.error);
+                }
+
+                const totalSent = (result.sent || 0) + (manualResult.sent || 0);
+                let header = loadedFromFile
+                    ? `🔎 Menjalankan simulasi alert dari waktu tersimpan *${inputTime}* ...`
+                    : `🔎 Simulasi alert pada jam *${inputTime}* berhasil disimpan dan dijalankan.`;
+
+                if (totalSent > 0) {
+                    return reply(`${header}\n✅ Total alert dikirim: *${totalSent}*`);
+                }
+
+                let details = `${header}\n⚠️ Tidak ada alert yang cocok pada waktu itu.`;
+                if (result.summary && result.summary.length) {
+                    details += `\n\n*Jadwal alert hari ini:*\n`;
+                    result.summary.forEach(item => {
+                        details += `• *${item.nama}* (${item.shiftName}) - ${item.shiftTime}\n`;
+                        details += `  • 50 menit sebelum: ${item.alert50}\n`;
+                        details += `  • 10 menit sebelum: ${item.alert10}\n`;
+                    });
+                }
+                reply(details);
+            }
+            break;
+
+            case "testgroup": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const configPath = path.join(__dirname, '.env.alert');
+                if (!fs.existsSync(configPath)) {
+                    return reply(`⚠️ Alert group belum di-setup!\n\nGunakan: ${prefix}setupalertgroup <GROUP_ID>`);
+                }
+                const groupId = fs.readFileSync(configPath, 'utf-8').match(/ALERT_GROUP_ID=(.+)/)?.[1]?.trim();
+                if (!groupId) {
+                    return reply(`⚠️ Group ID tidak valid di .env.alert`);
+                }
+                
+                const testMsg = `🧪 *TEST ALERT GROUP*\n\nIni adalah pesan test untuk memastikan bot dapat mengirim ke group alert.\n\nGroup ID: ${groupId}\nWaktu: ${new Date().toLocaleString('id-ID')}`;
+                
+                try {
+                    await client.sendMessage(groupId, { text: testMsg });
+                    reply(`✅ Test berhasil dikirim ke group alert!\n\nGroup ID: ${groupId}`);
+                } catch (error) {
+                    reply(`❌ Gagal mengirim test ke group:\n${error.message}\n\nGroup ID: ${groupId}`);
+                }
+            }
+            break;
+
+            case "setjadwal": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const args = text.split('|').map(s => s.trim());
+                if (args.length < 3) {
+                    return reply(`*usage:* ${prefix}setjadwal <nama>|<tanggal>|<shift>\n\nContoh:\n${prefix}setjadwal TestUser|2026-05-15|A2\n\nShift tersedia: A2, C4, PA2, PC4, SA2, SC4, dll.`);
+                }
+                
+                const [nama, tanggal, shift] = args;
+                const testSchedulePath = path.join(__dirname, '.test.schedule.json');
+                
+                let testSchedule = [];
+                if (fs.existsSync(testSchedulePath)) {
+                    try {
+                        testSchedule = JSON.parse(fs.readFileSync(testSchedulePath, 'utf-8'));
+                    } catch (e) {
+                        testSchedule = [];
+                    }
+                }
+                
+                // Check if shift exists
+                const listjadwal = require('./database/listjadwal');
+                if (!listjadwal.shifts[shift]) {
+                    const availableShifts = Object.keys(listjadwal.shifts).join(', ');
+                    return reply(`⚠️ Shift '${shift}' tidak ditemukan!\n\nShift tersedia: ${availableShifts}`);
+                }
+                
+                // Add or update schedule
+                const existingIndex = testSchedule.findIndex(s => s.nama === nama && s.tanggal === tanggal);
+                if (existingIndex >= 0) {
+                    testSchedule[existingIndex].shift = shift;
+                } else {
+                    testSchedule.push({ nama, tanggal, shift });
+                }
+                
+                fs.writeFileSync(testSchedulePath, JSON.stringify(testSchedule, null, 2));
+                reply(`✅ Jadwal test berhasil disimpan!\n\n👤 *${nama}*\n📅 ${tanggal}\n⏰ Shift: ${shift} (${listjadwal.shifts[shift].nama})`);
+            }
+            break;
+
+            case "clearjadwal": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const testSchedulePath = path.join(__dirname, '.test.schedule.json');
+                if (fs.existsSync(testSchedulePath)) {
+                    fs.unlinkSync(testSchedulePath);
+                    reply(`✅ Jadwal test berhasil dihapus. Sistem kembali menggunakan jadwal asli.`);
+                } else {
+                    reply(`⚠️ Tidak ada jadwal test yang aktif.`);
+                }
+            }
+            break;
+
+            case "testalert": {
+                if (!listowner.owners.includes(sender)) return reply('Khusus owner!');
+                const timeArg = text.trim();
+                if (!timeArg || !/^\d{1,2}:\d{2}$/.test(timeArg)) {
+                    return reply(`*usage:* ${prefix}testalert <HH:MM>\nContoh:\n${prefix}testalert 09:15`);
+                }
+                reply(`🔎 Simulasi alert pada jam *${timeArg}* ...`);
+                await checkAndSendAlerts(client, config, { packSticker: require('./w-shennmine/lib/fquoted').fquoted.packSticker }, timeArg);
+            }
+            break;
             
             ///////////////////////////////////////////CASE YANG DI TAMBAHKAN AKAN DITEMPATKAN DI BAWAH INI, JANGAN LETAKKAN CASE DI LUAR SWITCH INI///////////////////////////////////////////
 
              
-             break
             
             
+            
 
 
             
 
-case 'tagall':{
-             const textMessage = args.join(" ") || "nothing";
-             let teks = `tagall message :\n> *${textMessage}*\n\n`;
-             const groupMetadata = await client.groupMetadata(m.chat);
-             const participants = groupMetadata.participants;
-             for (let mem of participants) {
-             teks += `@${mem.id.split("@")[0]}\n`;
-             }
-             
-             client.sendMessage(m.chat, {
-             text: teks,
-             mentions: participants.map((a) => a.id)
-             }, { quoted: fquoted.packSticker });
-             }
-            
-            ```
-            break
+            case 'tagall': {
+                const textMessage = args.join(" ") || "nothing";
+                let teks = `tagall message :\n> *${textMessage}*\n\n`;
+                const groupMetadata = await client.groupMetadata(m.chat);
+                const participants = groupMetadata.participants || [];
+                for (let mem of participants) {
+                    teks += `@${mem.id.split("@")[0]}\n`;
+                }
+                
+                client.sendMessage(m.chat, {
+                    text: teks,
+                    mentions: participants.map((a) => a.id)
+                }, { quoted: fquoted.packSticker });
+            }
+            break;
 
-default:
+            default:
         }
     } catch (err) {
         console.log(require("util").format(err));

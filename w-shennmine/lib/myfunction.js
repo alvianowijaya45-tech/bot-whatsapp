@@ -259,9 +259,10 @@ exports.smsg = async (client, m, store) => {
     if (m.message) {
         m.mtype = getContentType(m.message)
         m.msg = (m.mtype == 'viewOnceMessage' ? m.message[m.mtype].message[getContentType(m.message[m.mtype].message)] : m.message[m.mtype])
-        m.body = m.message.conversation || m.msg.caption || m.msg.text || (m.mtype == 'listResponseMessage') && m.msg.singleSelectReply.selectedRowId || (m.mtype == 'buttonsResponseMessage') && m.msg.selectedButtonId || (m.mtype == 'viewOnceMessage') && m.msg.caption || m.text
-        let quoted = m.quoted = m.msg.contextInfo ? m.msg.contextInfo.quotedMessage : null
-        m.mentionedJid = m.msg.contextInfo ? m.msg.contextInfo.mentionedJid : []
+        const msg = m.msg || {}
+        m.body = m.message?.conversation || m.message?.extendedTextMessage?.text || m.message?.imageMessage?.caption || m.message?.videoMessage?.caption || m.message?.buttonsResponseMessage?.selectedButtonId || m.message?.listResponseMessage?.singleSelectReply?.selectedRowId || m.message?.templateButtonReplyMessage?.selectedId || msg.caption || msg.text || (m.mtype == 'listResponseMessage' && msg.singleSelectReply?.selectedRowId) || (m.mtype == 'buttonsResponseMessage' && msg.selectedButtonId) || (m.mtype == 'viewOnceMessage' && msg.caption) || m.text || ''
+        let quoted = m.quoted = msg.contextInfo ? msg.contextInfo.quotedMessage : null
+        m.mentionedJid = msg.contextInfo ? msg.contextInfo.mentionedJid : []
         if (m.quoted) {
             let type = getContentType(quoted)
 			m.quoted = m.quoted[type]

@@ -3,7 +3,7 @@ const fs = require('fs')
 const config = {
     owner: "-",
     botNumber: "-",
-    setPair: "K1UU1212",
+    setPair: "0000-0000",
     thumbUrl: "https://github.com/kiuur.png",
     session: "sessions",
     status: {
